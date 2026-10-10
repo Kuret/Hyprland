@@ -83,6 +83,7 @@ class CLinuxDMABUFFeedbackResource {
 
     bool                   good();
     void                   sendDefaultFeedback();
+    void                   sendScanoutFeedback(SDMABUFTranche& monitorTranche);
     void                   sendTranche(SDMABUFTranche& tranche);
 
     SP<CWLSurfaceResource> m_surface; // optional, for surface feedbacks
@@ -121,13 +122,17 @@ class CLinuxDMABufV1Protocol : public IWaylandProtocol {
     void destroyResource(CLinuxDMABUFParamsResource* resource);
     void destroyResource(CLinuxDMABuffer* resource);
 
-    void resetFormatTable();
+    void            resetFormatTable();
+    SDMABUFTranche* monitorTrancheFor(PHLMONITOR pMonitor);
 
     //
     std::vector<UP<CLinuxDMABUFResource>>         m_managers;
     std::vector<UP<CLinuxDMABUFFeedbackResource>> m_feedbacks;
     std::vector<UP<CLinuxDMABUFParamsResource>>   m_params;
     std::vector<UP<CLinuxDMABuffer>>              m_buffers;
+
+    // root surfaces currently in scanout mode, so feedbacks created later on them or their subsurfaces get the scanout tranche too
+    std::vector<std::pair<WP<CWLSurfaceResource>, PHLMONITORREF>> m_scanoutSurfaces;
 
     UP<CDMABUFFormatTable>                        m_formatTable;
     dev_t                                         m_mainDevice;
