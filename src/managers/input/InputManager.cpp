@@ -311,7 +311,21 @@ void CInputManager::mouseMoveUnified(uint32_t time, bool refocus, bool mouse, st
     if (!g_pSeatManager->m_mouse.expired()) {
         const auto SURF = Desktop::View::CWLSurface::fromResource(Desktop::focusState()->surface());
 
-        if (isConstrained()) {
+        // A confine (unlike a lock) lets the cursor travel over a pinned window floating above the constrained
+        // surface, e.g. a PiP over a fullscreen game. Hand the pointer to that window, so it gets hover, and
+        // confine again once the cursor is back over the constrained surface.
+        const bool PINNEDABOVECONFINE = [&]() -> bool {
+            const auto CONSTRAINT = SURF ? SURF->constraint() : nullptr;
+            if (!CONSTRAINT || CONSTRAINT->isLocked() || !CONSTRAINT->logicConstraintRegion().containsPoint(mouseCoords))
+                return false;
+
+            const auto ABOVE = Desktop::viewState()->hitTest().windowAt(mouseCoords, Desktop::View::RESERVED_EXTENTS | Desktop::View::INPUT_EXTENTS | Desktop::View::ALLOW_FLOATING);
+            return ABOVE && ABOVE->m_pinned && ABOVE != Desktop::View::CWindow::fromView(SURF->view());
+        }();
+
+        if (PINNEDABOVECONFINE) {
+            // fall through to the normal hit-test below
+        } else if (isConstrained()) {
             const auto CONSTRAINT = SURF ? SURF->constraint() : nullptr;
 
             if (CONSTRAINT) {
