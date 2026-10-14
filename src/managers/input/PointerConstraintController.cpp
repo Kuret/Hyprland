@@ -204,6 +204,16 @@ bool CPointerConstraintController::apply(uint32_t time, const Vector2D& position
     const auto REGION  = RULEWINDOW ? CRegion(*RULEBOX) : NATIVE->logicConstraintRegion();
     const auto CLOSEST = REGION.closestPoint(position);
 
+    // A confine (unlike a lock) lets the cursor travel over a pinned window floating above the confined
+    // surface, e.g. a PiP over a fullscreen game. Leave the pointer to the normal hit-test there, so that
+    // window gets hover; the confine is re-armed once the cursor is back over the confined surface.
+    if (REGION.containsPoint(position)) {
+        const auto ABOVE =
+            Desktop::viewState()->hitTest().windowAt(position, Desktop::View::RESERVED_EXTENTS | Desktop::View::INPUT_EXTENTS | Desktop::View::ALLOW_FLOATING);
+        if (ABOVE && (ABOVE->m_state & Desktop::View::WINDOW_STATE_PINNED) && ABOVE != ruleWindow(SURFACE))
+            return false;
+    }
+
     // A window rule confines to the window, not to whichever child currently
     // has pointer focus. Native constraints still take precedence on entry.
     const bool HELD_FOCUS = g_pInputManager->hasHeldButtons() && !PROTO::data->dndActive() && !g_pInputManager->m_hardInput;
