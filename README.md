@@ -1,3 +1,33 @@
+> [!NOTE]
+> **This is a personal fork of [hyprwm/Hyprland](https://github.com/hyprwm/Hyprland).** `main` here is upstream `main` with the
+> three patches below on top. It's rebased onto upstream regularly, so expect force pushes. These patches are for my own setup
+> (an NVIDIA card, games running through Wine's Wayland driver) and are not submitted upstream.
+>
+> **1. Keep the scanout tranche for new dmabuf surface feedbacks** (`src/protocols/LinuxDMABUF.{cpp,hpp}`)
+>
+> Fullscreen Proton/Wine games running in Wine's Wayland mode go black with `render:direct_scanout` on. Hyprland sent the
+> scanout tranche only to the first feedback object of the fullscreen surface. Wine renders into a subsurface, and NVIDIA's
+> Vulkan WSI makes a new feedback object for every swapchain, so the game never got the scanout tranche, picked modifiers
+> KMS can't scan out, and Hyprland looped modesets. The patch sends the tranche to every feedback in the surface tree and
+> gives feedbacks created later the scanout tranche first. GNOME fixed the same problem in Mutter MR 5366.
+>
+> **2. Let pinned windows take the pointer over a confine** (`src/managers/input/PointerConstraintController.cpp`)
+>
+> A fullscreen game under Wine's Wayland driver confines the pointer to itself. Every pointer motion then went to the game,
+> even over a pinned window floating above it, so a picture-in-picture video never got hover and its controls never showed.
+> With the patch, a pinned window under the cursor gets the pointer while a confine is active. The confine applies again
+> once the cursor is back over the game. Pointer locks (mouse-look) are unchanged.
+>
+> **3. Let a fullscreen VRR app pace other surfaces' frames** (`src/output/Monitor.cpp`, `src/render/Renderer.cpp`)
+>
+> With VRR the display refreshes whenever the compositor presents a frame. A PiP video over a fullscreen game scheduled its
+> own frames, so the refresh followed two sources and the game juddered while its frame times stayed flat. With the patch,
+> other surfaces' updates are held and drawn with the game's next frame. `cursor:min_refresh_rate` still applies, so they
+> keep updating if the game stops drawing. The new option `misc:vrr_hold_frames` (`disable`, `enable`, `auto`; default
+> `auto`, which only applies it to content type "game") turns it off.
+>
+> Release builds are made by applying these three commits to the latest release tag; `patched-v<version>` tags mark those trees.
+
 <div align = center>
 
 <img src="https://raw.githubusercontent.com/hyprwm/Hyprland/main/assets/header.svg" width="750" height="300" alt="banner">
