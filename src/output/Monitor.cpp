@@ -22,6 +22,7 @@
 #include "../pointer/PointerController.hpp"
 #include "../managers/eventLoop/EventLoopManager.hpp"
 #include "../protocols/core/Compositor.hpp"
+#include "../protocols/core/Subcompositor.hpp"
 #include "../protocols/core/DataDevice.hpp"
 #include "../render/Renderer.hpp"
 #include "../managers/EventManager.hpp"
@@ -101,6 +102,8 @@ CMonitor::CMonitor(SP<Aquamarine::IOutput> output_) : m_name(output_->name), m_s
 
 CMonitor::~CMonitor() {
     m_events.destroy.emit();
+    if (m_heldDamageTimer && g_pEventLoopManager)
+        g_pEventLoopManager->removeTimer(m_heldDamageTimer);
     if (g_pHyprRenderer && g_pHyprRenderer->glBackend())
         g_pHyprRenderer->glBackend()->destroyMonitorResources(m_self);
 }
@@ -1176,6 +1179,69 @@ bool CMonitor::shouldSkipScheduleFrameOnMouseEvent() {
     }
 
     return shouldSkip;
+}
+
+bool CMonitor::shouldHoldFrameFor(SP<CWLSurfaceResource> surface) {
+    static auto PHOLD  = CConfigValue<Config::INTEGER>("misc:vrr_hold_frames");
+    static auto PMINRR = CConfigValue<Config::INTEGER>("cursor:min_refresh_rate");
+
+    // With VRR the refresh follows the frames we schedule. If other surfaces over a fullscreen app (e.g. a PiP
+    // video over a game) scheduled their own, the refresh would follow two sources and the app would judder.
+    // Their updates are drawn with the app's next frame instead.
+    const auto FULLSCREEN_WINDOW = Fullscreen::controller()->getFullscreenWindow(m_self.lock());
+    if (!surface || !FULLSCREEN_WINDOW || !m_output || !m_output->state->state().adaptiveSync)
+        return false;
+
+    if (!(*PHOLD == 1 || (*PHOLD == 2 && FULLSCREEN_WINDOW->getContentType() == CONTENT_TYPE_GAME)))
+        return false;
+
+    while (surface && surface->m_role->role() == SURFACE_ROLE_SUBSURFACE) {
+        const auto SUB = sc<CSubsurfaceRole*>(surface->m_role.get())->m_subsurface.lock();
+        surface        = SUB ? SUB->m_parent.lock() : nullptr;
+    }
+
+    if (!surface || surface == FULLSCREEN_WINDOW->wlSurface()->resource())
+        return false;
+
+    // keep the requested minimum refresh rate
+    return !*PMINRR || m_lastPresentationTimer.getMillis() < 1000.0f / *PMINRR;
+}
+
+void CMonitor::addHeldDamage(const CRegion& rg) {
+    static auto PMINRR = CConfigValue<Config::INTEGER>("cursor:min_refresh_rate");
+
+    m_damage.damage(rg);
+    m_heldDamage = true;
+
+    if (!*PMINRR)
+        return;
+
+    // If the app stops drawing, show the held damage at the minimum refresh rate anyway. Clients like the PiP
+    // wait for a frame callback before committing again, so nothing else would trigger that frame.
+    if (!m_heldDamageTimer) {
+        m_heldDamageTimer = makeShared<CEventLoopTimer>(
+            std::nullopt,
+            [self = m_self](SP<CEventLoopTimer> timer, void*) {
+                const auto PMONITOR = self.lock();
+                if (!PMONITOR || !PMONITOR->m_heldDamage)
+                    return;
+
+                const float LEFT = 1000.0f / *PMINRR - PMONITOR->m_lastPresentationTimer.getMillis();
+                if (LEFT > 0.F) {
+                    timer->updateTimeout(std::chrono::microseconds(sc<int64_t>(LEFT * 1000.F)));
+                    return;
+                }
+
+                PMONITOR->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_DAMAGE);
+            },
+            nullptr);
+        g_pEventLoopManager->addTimer(m_heldDamageTimer);
+    }
+
+    if (!m_heldDamageTimer->armed()) {
+        const float LEFT = std::max(0.F, 1000.0f / *PMINRR - m_lastPresentationTimer.getMillis());
+        m_heldDamageTimer->updateTimeout(std::chrono::microseconds(sc<int64_t>(LEFT * 1000.F)));
+    }
 }
 
 bool CMonitor::isMirror() {

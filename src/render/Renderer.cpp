@@ -1781,6 +1781,7 @@ bool IHyprRenderer::beginRender(PHLMONITOR pMonitor, CRegion& damage, eRenderMod
     if (m_renderMode == RENDER_MODE_NORMAL) {
         damage = pMonitor->m_damage.getBufferDamage(bufferAge);
         pMonitor->m_damage.rotate();
+        pMonitor->m_heldDamage = false;
 
         if (pMonitor->needsACopyFB())
             damage.add(pMonitor->resources()->pendingMirrorFBDamage());
@@ -2719,7 +2720,7 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
                 if (!m->m_output)
                     continue;
 
-                if (BOX->overlaps(m->logicalBox()))
+                if (BOX->overlaps(m->logicalBox()) && !m->shouldHoldFrameFor(pSurface))
                     m->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_NEEDS_FRAME);
             }
         }
@@ -2747,7 +2748,10 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
         damageBoxForEach.set(damageBox);
         damageBoxForEach.translate({-m->m_position.x, -m->m_position.y}).scale(m->m_scale);
 
-        m->addDamage(damageBoxForEach);
+        if (m->shouldHoldFrameFor(pSurface))
+            m->addHeldDamage(damageBoxForEach);
+        else
+            m->addDamage(damageBoxForEach);
     }
 
     static auto PLOGDAMAGE = CConfigValue<Config::INTEGER>("debug:log_damage");

@@ -122,6 +122,9 @@ namespace Monitor {
 
         bool                        m_ratsScheduled = false;
         CTimer                      m_lastPresentationTimer;
+        // damage held back by shouldHoldFrameFor, not yet rendered
+        bool                        m_heldDamage = false;
+        SP<CEventLoopTimer>         m_heldDamageTimer;
 
         bool                        m_isBeingLeased = false;
 
@@ -266,6 +269,8 @@ namespace Monitor {
         void         addDamage(const CBox& box);
         void         scheduleFrame(Aquamarine::IOutput::scheduleFrameReason reason = Aquamarine::IOutput::AQ_SCHEDULE_CLIENT_UNKNOWN);
         bool         shouldSkipScheduleFrameOnMouseEvent();
+        bool         shouldHoldFrameFor(SP<CWLSurfaceResource> surface);
+        void         addHeldDamage(const CRegion& rg);
         void         setMirror(const std::string&);
         bool         isMirror();
         float        getDefaultScale();
